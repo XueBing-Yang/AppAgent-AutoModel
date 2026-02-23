@@ -1,0 +1,21 @@
+# 核心通信库
+requests>=2.31.0        # 用于向 Stable Diffusion WebUI 发送 HTTP 请求
+aiohttp>=3.9.0          # (可选) 如果你想实现异步高并发绘图，用这个替代 requests
+playwright              # 浏览器自动化，用于打开网页/登录
+
+# 图像处理库
+Pillow>=10.0.0          # 即 PIL，用于处理 Base64 图片数据并保存为 PNG/JPG
+
+# 大模型交互与数据校验
+openai>=1.12.0          # 目前最通用的 LLM 客户端 (即使你用本地 Ollama/vLLM，也通常兼容此 SDK)
+pydantic>=2.6.0         # 极度重要！用于强制让大模型输出标准的 JSON 格式 (筛选结果/Prompt)
+langchain>=0.1.0        # (可选) 如果你想构建复杂的 Agent 逻辑，用它来管理 Prompt 模板
+
+# 配置与工具
+PyYAML>=6.0.1           # 用于读取 config/settings.yaml
+python-dotenv>=1.0.1    # 用于读取 .env 文件中的 API Key
+tqdm>=4.66.0            # 进度条工具，处理整本小说时非常需要看到进度
+
+# 文本处理 (基础中文分词可选，如果用纯规则切分可不装)
+# jieba>=0.42.1         # 如果你需要按"句子"而不是按"行"切分，用 jieba 分句比较准
+

@@ -1,0 +1,44 @@
+# API keys and secrets
+.env
+
+# Logs
+logs/
+
+# Temporary files
+tmp/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Output files (generated images, markdown)
+output/
+
+# Model weights (large files)
+model_weight/
+*.safetensors
+*.ckpt
+*.bin
+
+# Log files anywhere
+*.log
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Cursor transcripts
+agent-transcripts/

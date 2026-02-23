@@ -1,0 +1,54 @@
+# Agent Novel 项目配置文件
+
+# 小说处理配置
+novel_processor:
+  min_length: 50        # 片段最小长度（字符数）
+  max_length: 500       # 片段最大长度（字符数）
+
+# 片段筛选配置
+fragment_filter:
+  min_score: 6.0        # 最低评分阈值（0-10分）
+  max_selected: 50      # 最多选中的片段数量，null表示不限制
+  use_custom_criteria: false  # 是否使用自定义筛选标准
+  custom_criteria: "包含场景描述和人物动作"  # 自定义筛选标准
+
+# LLM配置
+llm:
+  provider: "dashscope"    # 可选: openai, dashscope(qwen), ollama, custom
+  model: "qwen3.5-plus"  # 模型名称（qwen模型需要设置DASHSCOPE_API_KEY）
+  base_url: null        # API基础URL，null则使用默认（qwen会自动使用dashscope地址）
+  temperature: 0.3      # 温度参数（筛选时使用）
+  temperature_prompt: 0.7  # 温度参数（生成提示词时使用）
+
+# Stable Diffusion配置
+sd:
+  url: "http://127.0.0.1:7860"  # SD WebUI API地址
+  output_dir: "output"           # 输出目录
+  width: 512                      # 图片宽度
+  height: 768                     # 图片高度（竖屏适合小说插图）
+  steps: 25                       # 生成步数
+  cfg_scale: 7                    # 提示词相关性
+  sampler_name: "DPM++ 2M Karras" # 采样器名称
+
+# Prompt生成配置
+prompt_generator:
+  use_llm: true        # 是否使用LLM生成提示词，false则使用规则生成
+  lora: "<lora:purple_ethereal_scenery_v1:0.8>"  # LoRA标签，添加到positive_prompt后面，null则不添加
+
+# 输出配置
+output:
+  save_metadata: true   # 是否保存元数据（片段文本、评分等）
+  metadata_format: "json"  # 元数据格式：json, txt
+
+# Web 搜索配置（需要第三方搜索 API）
+search:
+  # Tavily 搜索
+  provider: "tavily"
+  api_url: "https://api.tavily.com/search"
+  api_key: null   # 或设置环境变量 TAVILY_API_KEY
+  timeout: 15
+  # 可选参数（Tavily）
+  search_depth: "basic"  # basic | advanced
+  include_answer: false
+  include_images: false
+
