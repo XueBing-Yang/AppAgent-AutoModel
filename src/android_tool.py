@@ -221,17 +221,19 @@ def tap_coordinates(session_id: str, x: Any = 0, y: Any = 0) -> Dict[str, Any]:
         return {"success": False, "error": "session_not_found"}
     did = sess["device_id"]
     driver = sess.get("driver")
+    disp = _get_display_info(session_id) or {}
+    screen_info = f"{disp.get('width', '?')}x{disp.get('height', '?')} rot={disp.get('rotation', '?')}"
     if driver is not None:
         try:
             driver.click(x, y)
-            return {"success": True, "x": x, "y": y, "method": "uiautomator2_click"}
+            return {"success": True, "x": x, "y": y, "screen": screen_info, "method": "uiautomator2_click"}
         except Exception:
             pass
     try:
         p = _run_adb(["-s", did, "shell", "input", "tap", str(x), str(y)])
         if p.returncode != 0:
             return {"success": False, "error": "adb_error", "message": f"adb input tap {x} {y} failed: {p.stderr.strip()}"}
-        return {"success": True, "x": x, "y": y, "method": "adb_input_tap"}
+        return {"success": True, "x": x, "y": y, "screen": screen_info, "method": "adb_input_tap"}
     except Exception as e:
         return {"success": False, "error": "tap_failed", "message": str(e)}
 
@@ -375,8 +377,73 @@ def find_elements(session_id: str, text: str = "", resource_id: str = "",
         return {"success": False, "error": "find_failed", "message": str(e), "elements": []}
 
 
+def _get_display_info(session_id: str) -> Optional[Dict[str, Any]]:
+    """Internal: get display width, height, and rotation from the device."""
+    sess = _get_device_for_session(session_id)
+    if not sess:
+        return None
+    did = sess["device_id"]
+    driver = sess.get("driver")
+    rotation = 0
+    w, h = 0, 0
+    if driver is not None:
+        try:
+            info = driver.info
+            w = info.get("displayWidth", 0)
+            h = info.get("displayHeight", 0)
+            rotation = info.get("displayRotation", 0)
+        except Exception:
+            pass
+    if not (w and h):
+        try:
+            p = _run_adb(["-s", did, "shell", "wm", "size"])
+            m = re.search(r"(\d+)x(\d+)", p.stdout or "")
+            if m:
+                w, h = int(m.group(1)), int(m.group(2))
+        except Exception:
+            pass
+    if not (w and h):
+        return None
+    return {"width": w, "height": h, "rotation": rotation}
+
+
 def get_screen_size(session_id: str) -> Dict[str, Any]:
-    """Get screen width, height and orientation for the connected device."""
+    """Get screen width, height, orientation and rotation for the connected device."""
+    info = _get_display_info(session_id)
+    if not info:
+        if not _get_device_for_session(session_id):
+            return {"success": False, "error": "session_not_found"}
+        return {"success": False, "error": "cannot_get_size"}
+    w, h, rot = info["width"], info["height"], info["rotation"]
+    orientation = "landscape" if w > h else "portrait"
+    return {"success": True, "width": w, "height": h, "orientation": orientation, "rotation": rot}
+
+
+def tap_percent(session_id: str, x_pct: Any = 50, y_pct: Any = 50) -> Dict[str, Any]:
+    """Tap at a percentage position on screen. x_pct/y_pct are 0-100.
+    e.g. x_pct=50, y_pct=70 taps at 50% from left, 70% from top.
+    Automatically handles coordinate conversion for any screen orientation."""
+    try:
+        xp = float(str(x_pct))
+        yp = float(str(y_pct))
+    except (ValueError, TypeError) as e:
+        return {"success": False, "error": "invalid_percent", "message": f"x_pct={x_pct!r}, y_pct={y_pct!r}: {e}"}
+    if not (0 <= xp <= 100 and 0 <= yp <= 100):
+        return {"success": False, "error": "out_of_range", "message": f"x_pct={xp}, y_pct={yp} must be 0-100"}
+
+    info = _get_display_info(session_id)
+    if not info:
+        sess = _get_device_for_session(session_id)
+        if not sess:
+            return {"success": False, "error": "session_not_found"}
+        return {"success": False, "error": "cannot_get_size"}
+
+    w, h = info["width"], info["height"]
+    x = int(w * xp / 100.0)
+    y = int(h * yp / 100.0)
+    x = max(1, min(x, w - 1))
+    y = max(1, min(y, h - 1))
+
     sess = _get_device_for_session(session_id)
     if not sess:
         return {"success": False, "error": "session_not_found"}
@@ -384,24 +451,25 @@ def get_screen_size(session_id: str) -> Dict[str, Any]:
     driver = sess.get("driver")
     if driver is not None:
         try:
-            info = driver.info
-            w = info.get("displayWidth", 0)
-            h = info.get("displayHeight", 0)
-            if w and h:
-                orientation = "landscape" if w > h else "portrait"
-                return {"success": True, "width": w, "height": h, "orientation": orientation}
+            driver.click(x, y)
+            return {
+                "success": True, "x": x, "y": y,
+                "x_pct": xp, "y_pct": yp,
+                "screen": f"{w}x{h}", "method": "uiautomator2_click",
+            }
         except Exception:
             pass
     try:
-        p = _run_adb(["-s", did, "shell", "wm", "size"])
-        m = re.search(r"(\d+)x(\d+)", p.stdout or "")
-        if m:
-            w, h = int(m.group(1)), int(m.group(2))
-            orientation = "landscape" if w > h else "portrait"
-            return {"success": True, "width": w, "height": h, "orientation": orientation}
-    except Exception:
-        pass
-    return {"success": False, "error": "cannot_get_size"}
+        p = _run_adb(["-s", did, "shell", "input", "tap", str(x), str(y)])
+        if p.returncode != 0:
+            return {"success": False, "error": "adb_error", "message": p.stderr.strip()}
+        return {
+            "success": True, "x": x, "y": y,
+            "x_pct": xp, "y_pct": yp,
+            "screen": f"{w}x{h}", "method": "adb_input_tap",
+        }
+    except Exception as e:
+        return {"success": False, "error": "tap_failed", "message": str(e)}
 
 
 def screenshot(session_id: str, output_path: str) -> Dict[str, Any]:

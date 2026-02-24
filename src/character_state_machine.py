@@ -20,7 +20,7 @@ class CharacterStateMachine:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: str = "qwen3.5-plus"
+        model: str = "qwen3.5-397b-a17b"
     ):
         """
         初始化人物状态机

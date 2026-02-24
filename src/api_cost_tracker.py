@@ -47,7 +47,7 @@ class APICostTracker:
     - 图片为本地模型，不计费
     """
     
-    def __init__(self, model: str = "qwen3.5-plus"):
+    def __init__(self, model: str = "qwen3.5-397b-a17b"):
         self.model = model
         self._steps: Dict[str, StepCost] = {}
         self._model_type = "qwen" if "qwen" in model.lower() else "openai"

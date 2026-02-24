@@ -35,6 +35,7 @@ from src.android_tool import (
     open_app as android_open_app,
     tap_text as android_tap_text,
     tap_coordinates as android_tap_coordinates,
+    tap_percent as android_tap_percent,
     tap_resource_id as android_tap_resource_id,
     tap_content_desc as android_tap_content_desc,
     swipe as android_swipe,
@@ -294,6 +295,16 @@ def skill_android_tap_coordinates(
 ) -> Dict[str, Any]:
     """Tap at absolute screen coordinates."""
     return android_tap_coordinates(session_id=session_id, x=x, y=y)
+
+
+def skill_android_tap_percent(
+    ctx: SkillContext,
+    session_id: str,
+    x_pct: float,
+    y_pct: float,
+) -> Dict[str, Any]:
+    """Tap at percentage position on screen (0-100). Handles orientation automatically."""
+    return android_tap_percent(session_id=session_id, x_pct=x_pct, y_pct=y_pct)
 
 
 def skill_android_tap_resource_id(
@@ -662,7 +673,7 @@ def get_skill_specs() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "android_tap_coordinates",
-                "description": "Tap at absolute screen coordinates (x, y). Use for icon buttons without text. Get coordinates from find_elements bounds or dump_ui XML bounds attribute.",
+                "description": "Tap at absolute screen coordinates (x, y). Use for normal apps with find_elements bounds.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -671,6 +682,22 @@ def get_skill_specs() -> List[Dict[str, Any]]:
                         "y": {"type": "integer", "description": "Y coordinate"},
                     },
                     "required": ["session_id", "x", "y"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "android_tap_percent",
+                "description": "Tap at a percentage position on screen (0-100). x_pct=50 means horizontal center, y_pct=70 means 70% from top. USE THIS for game engine UIs — read the percentage grid lines on the screenshot and pass the matching percentages. Handles screen orientation automatically.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string"},
+                        "x_pct": {"type": "number", "description": "Horizontal percentage 0-100 (0=left edge, 100=right edge)"},
+                        "y_pct": {"type": "number", "description": "Vertical percentage 0-100 (0=top edge, 100=bottom edge)"},
+                    },
+                    "required": ["session_id", "x_pct", "y_pct"],
                 },
             },
         },
@@ -908,6 +935,8 @@ def execute_skill(ctx: SkillContext, name: str, arguments: Dict[str, Any]) -> Di
         return skill_android_tap_text(ctx, **arguments)
     if name == "android_tap_coordinates":
         return skill_android_tap_coordinates(ctx, **arguments)
+    if name == "android_tap_percent":
+        return skill_android_tap_percent(ctx, **arguments)
     if name == "android_tap_resource_id":
         return skill_android_tap_resource_id(ctx, **arguments)
     if name == "android_tap_content_desc":

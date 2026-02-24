@@ -32,7 +32,7 @@ class FragmentFilter:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: str = "qwen3.5-plus",
+        model: str = "qwen3.5-397b-a17b",
         temperature: float = 0.3
     ):
         """

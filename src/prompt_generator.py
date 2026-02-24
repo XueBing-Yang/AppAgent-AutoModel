@@ -22,7 +22,7 @@ class PromptGenerator:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: str = "qwen3.5-plus",
+        model: str = "qwen3.5-397b-a17b",
         use_llm: bool = True,
         lora: Optional[str] = None,
         character_state_machine = None

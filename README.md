@@ -1,203 +1,183 @@
-# Agent Novel - 小说插图生成工具
+# AppAgent-AutoModel
 
-一个智能的小说插图生成Agent，能够自动将小说切分为片段，筛选适合生成插图的片段，并生成相应的插图。
+一个基于大模型的智能代理（Agent），具备**自主规划与执行**能力。通过对话交互，Agent 能够自动操控 Android 手机、浏览网页、搜索信息，并执行复杂的多步骤任务。同时保留了从小说文本自动生成插图的核心功能。
 
-## 功能特性
+## 核心能力
 
-- 📚 **小说切分**: 自动将小说切分为大量片段
-- 🔍 **智能筛选**: 使用大模型筛选适合生成插图的片段
-- 🎨 **提示词生成**: 将文本片段转换为适合Counterfeit-V3.0的提示词
-- 🖼️ **插图生成**: 调用Stable Diffusion生成插图
+| 能力 | 说明 |
+|------|------|
+| 🤖 **Chat-First 对话交互** | 纯对话界面，用户下达指令后 Agent 自主规划、执行，非必要不打扰用户 |
+| 📱 **Android 手机控制** | 通过 ADB + uiautomator2 操控手机：打开 APP、点击、滑动、输入文字、截图 |
+| 👁️ **视觉理解（多模态）** | 接入 Qwen3.5-Plus 视觉模型，Agent 能"看到"手机截图并理解界面内容 |
+| 🎮 **游戏模式自动适配** | 检测到游戏引擎界面时自动切换策略：坐标网格覆盖 + 视觉定位 |
+| 🌐 **浏览器自动化** | 通过 Playwright 控制浏览器：打开网页、填写表单、点击按钮 |
+| 🔍 **Web 搜索** | 集成 Tavily 搜索 API，Agent 可在执行任务前主动搜索信息 |
+| 📚 **小说插图生成** | 小说文本 → 片段筛选 → 提示词生成 → Stable Diffusion 生成插图 |
 
 ## 项目结构
 
 ```
-Agent_novel/
+AppAgent-AutoModel/
+├── cli.py                          # Chat-First 命令行界面
+├── main.py                         # 小说插图生成入口
 ├── config/
-│   └── settings.yaml       # 配置文件
-├── data/                   # 输入小说文件目录
-├── output/                 # 输出目录（生成的插图和元数据）
-├── logs/                   # 日志目录
+│   └── settings.yaml               # 项目配置（LLM、SD、搜索等）
 ├── src/
-│   ├── novel_processor.py  # 小说处理模块（切分）
-│   ├── fragment_filter.py  # 片段筛选模块（LLM筛选）
-│   ├── prompt_generator.py # 提示词生成模块
-│   └── sd_client.py        # Stable Diffusion客户端
-├── main.py                 # 主程序
-├── requirements.txt        # 依赖包
-└── README.md              # 本文件
+│   ├── chat_agent.py               # 核心 Agent（规划、工具调用、视觉支持）
+│   ├── skills/__init__.py          # 工具注册与分发
+│   ├── android_tool.py             # Android 自动化（ADB + uiautomator2）
+│   ├── browser_tool.py             # 浏览器自动化（Playwright）
+│   ├── search_tool.py              # Web 搜索（Tavily）
+│   ├── workflows/
+│   │   └── xhs_publish.py          # 小红书发布工作流
+│   ├── novel_processor.py          # 小说切分
+│   ├── fragment_filter.py          # 片段筛选（LLM 评分）
+│   ├── prompt_generator.py         # 图片提示词生成
+│   ├── sd_client.py                # Stable Diffusion 客户端
+│   ├── character_state_machine.py  # 角色状态机（外貌一致性）
+│   ├── markdown_generator.py       # 插图插入 Markdown
+│   └── api_cost_tracker.py         # API 成本追踪
+├── data/                           # 输入小说文件
+├── output/                         # 生成的插图和元数据
+├── logs/                           # 运行日志
+├── .env.example                    # 环境变量模板
+└── requirements.txt                # Python 依赖
 ```
 
-## 安装步骤
+## 快速开始
 
-1. **克隆或下载项目**
-
-2. **安装Python依赖**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **配置环境变量**
-   - 复制 `.env.example` 为 `.env`
-   - 编辑 `.env`，填入你的 API Key：
-     - 如果使用 OpenAI 模型：设置 `OPENAI_API_KEY`
-     - 如果使用 qwen 模型：设置 `DASHSCOPE_API_KEY`
-   ```bash
-   cp .env.example .env
-   # 然后编辑 .env 文件
-   ```
-
-4. **配置Stable Diffusion WebUI**
-   - 确保已经部署了Stable Diffusion WebUI（带API功能）
-   - 默认地址为 `http://127.0.0.1:7860`
-   - 确保已加载Counterfeit-V3.0模型
-
-5. **配置项目设置**（可选）
-   - 编辑 `config/settings.yaml` 来调整各种参数
-
-## 使用方法
-
-### 基本使用
+### 1. 安装依赖
 
 ```bash
-python main.py <小说文件路径>
+pip install -r requirements.txt
 ```
 
-例如：
+Android 自动化还需要：
 ```bash
+pip install uiautomator2
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，填入 API Key：
+```
+DASHSCOPE_API_KEY=your_dashscope_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
+```
+
+### 3. 配置 `config/settings.yaml`
+
+```yaml
+llm:
+  provider: "dashscope"
+  model: "qwen3.5-plus"     # 支持视觉理解的多模态模型
+```
+
+### 4. 启动 Agent（对话模式）
+
+```bash
+python cli.py
+```
+
+启动后进入对话界面，直接输入指令即可：
+```
+You: 帮我在手机上打开小红书，发布一条长沙旅游的帖子
+You: 帮我领取遗弃之地的挂机奖励
+You: generate data/novel.txt   # 生成小说插图
+```
+
+## Agent 工作原理
+
+```
+用户输入 → Agent 规划（制定步骤） → 逐步执行工具调用 → 截图确认 → 调整策略 → 完成
+```
+
+### 工具列表
+
+| 工具 | 说明 |
+|------|------|
+| `web_search` | 搜索互联网信息 |
+| `android_start` / `android_stop` | 启动/关闭 Android 会话 |
+| `android_open_app` | 打开手机 APP |
+| `android_tap_coordinates` | 按绝对坐标点击屏幕 |
+| `android_tap_percent` | 按百分比位置点击（游戏模式推荐，自动处理横竖屏） |
+| `android_tap_text` | 按文本点击元素 |
+| `android_find_elements` | 搜索界面元素 |
+| `android_swipe` | 滑动屏幕 |
+| `android_screenshot` | 手机截图 |
+| `android_input_text` | 输入文字 |
+| `android_get_screen_size` | 获取屏幕分辨率 |
+| `browser_start` / `browser_open` | 浏览器操作 |
+| `generate_novel_illustrations` | 生成小说插图 |
+
+### 视觉模式
+
+当使用支持视觉的模型（如 `qwen3.5-plus`）时，Agent 可以：
+- 截图后"看到"手机屏幕内容
+- 理解界面状态并做出决策
+- 在游戏引擎界面中，自动叠加坐标网格辅助定位
+
+### 游戏模式
+
+当检测到游戏引擎界面（Unity/Cocos 等）时自动激活：
+- `find_elements` 无法识别游戏内元素 → 切换为纯视觉定位
+- 截图叠加百分比网格线（10%/20%/.../90% 主线 + 5% 辅助线）
+- 使用 `android_tap_percent` 按百分比点击，自动处理横屏/竖屏坐标转换
+- 使用更高分辨率截图（1600px）保留细节
+
+## 小说插图生成
+
+保留原有的小说插图生成流程：
+
+```bash
+# 通过 CLI 对话模式
+python cli.py
+> generate data/novel.txt
+
+# 或直接运行
 python main.py data/novel.txt
 ```
 
-### 高级选项
+流程：小说切分 → LLM 片段评分筛选 → 角色状态机更新 → 提示词生成（含 LoRA） → Stable Diffusion 生成 → 插图插入 Markdown
 
-```bash
-# 指定输出目录
-python main.py data/novel.txt --output my_output
+### 特性
+- **分章节生成**：按章节组织输出目录
+- **角色一致性**：全局角色状态机追踪人物外貌、年龄、性别
+- **动态负面提示词**：根据角色性别自动调整 negative prompt
+- **LoRA 支持**：可配置 LoRA 标签追加到提示词
+- **API 成本确认**：执行前显示预估费用，支持一键执行或逐步确认
 
-# 使用自定义配置文件
-python main.py data/novel.txt --config config/my_config.yaml
+## Android 手机连接
 
-# 跳过筛选步骤（使用所有片段）
-python main.py data/novel.txt --skip-filter
-
-# 跳过图片生成（只生成提示词，用于测试）
-python main.py data/novel.txt --skip-generation
-```
-
-## 工作流程
-
-1. **小说切分**
-   - 将输入的小说文件加载并清理
-   - 按句子切分文本
-   - 将句子组合成指定长度的片段
-
-2. **片段筛选**
-   - 使用大模型（如GPT-4o-mini）分析每个片段
-   - 判断片段是否适合生成插图
-   - 给出适合度评分和视觉描述
-
-3. **提示词生成**
-   - 将筛选后的片段转换为适合Counterfeit-V3.0的提示词
-   - 可以使用LLM生成高质量提示词，或使用规则生成
-
-4. **插图生成**
-   - 调用本地Stable Diffusion WebUI API
-   - 使用Counterfeit-V3.0模型生成插图
-   - 保存图片和元数据
+1. 手机开启 **USB 调试**（开发者选项）
+2. 小米/红米用户还需开启 **USB 调试（安全设置）**
+3. 用 USB 数据线连接电脑
+4. 验证连接：
+   ```bash
+   adb devices
+   ```
 
 ## 配置说明
 
-主要配置文件：`config/settings.yaml`
+详见 `config/settings.yaml`，主要配置项：
 
-### 小说处理配置
-```yaml
-novel_processor:
-  min_length: 50    # 片段最小长度（字符数）
-  max_length: 500   # 片段最大长度（字符数）
-```
+| 配置 | 说明 |
+|------|------|
+| `llm.provider` | LLM 提供商（`dashscope`、`openai`） |
+| `llm.model` | 模型名称（推荐 `qwen3.5-plus`） |
+| `sd.url` | Stable Diffusion WebUI 地址 |
+| `prompt_generator.lora` | LoRA 标签 |
+| `search.provider` | 搜索 API 提供商（`tavily`） |
 
-### 片段筛选配置
-```yaml
-fragment_filter:
-  min_score: 6.0           # 最低评分阈值（0-10分）
-  max_selected: 50         # 最多选中的片段数量
-  use_custom_criteria: false
-  custom_criteria: "包含场景描述和人物动作"
-```
+## 致谢
 
-### LLM配置
-```yaml
-llm:
-  provider: "openai"    # 或 "dashscope" (用于qwen模型)
-  model: "qwen1.5-72b-chat"  # 或 "gpt-4o-mini" 等
-  temperature: 0.3
-```
+- [Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM) — 智谱 AI 开源的手机 Agent 框架，本项目在 Android 自动化与视觉定位策略上受其启发。
 
-**注意**：
-- 使用 qwen 模型时，需要设置 `DASHSCOPE_API_KEY` 环境变量
-- 使用 OpenAI 模型时，需要设置 `OPENAI_API_KEY` 环境变量
-- qwen 模型会自动使用 DashScope API 地址，无需手动设置 `base_url`
-
-### Stable Diffusion配置
-```yaml
-sd:
-  url: "http://127.0.0.1:7860"
-  output_dir: "output"
-  width: 512
-  height: 768
-  steps: 25
-  cfg_scale: 7
-  sampler_name: "DPM++ 2M Karras"
-```
-
-## 输出说明
-
-生成的输出文件保存在 `output/` 目录（或指定的输出目录）：
-
-- `illustration_0001.png`, `illustration_0002.png`, ... - 生成的插图
-- `metadata.json` - 元数据文件，包含：
-  - 片段原文
-  - 筛选评分
-  - 生成的提示词
-  - 图片路径
-
-## 注意事项
-
-1. **API密钥**: 确保设置了正确的 `OPENAI_API_KEY` 环境变量
-2. **SD WebUI**: 确保Stable Diffusion WebUI正在运行并且API可用
-3. **模型加载**: 确保Counterfeit-V3.0模型已加载
-4. **文件编码**: 支持UTF-8、GBK、GB2312编码的小说文件
-5. **处理时间**: 处理整本小说可能需要较长时间，取决于片段数量和API速度
-
-## 故障排除
-
-### 连接SD WebUI失败
-- 检查SD WebUI是否正在运行
-- 检查API地址是否正确（默认: http://127.0.0.1:7860）
-- 确认WebUI已启用API功能
-
-### LLM调用失败
-- 检查 `OPENAI_API_KEY` 是否正确设置
-- 检查网络连接
-- 如果使用本地模型，检查 `OPENAI_BASE_URL` 配置
-
-### 生成的图片质量不佳
-- 调整 `config/settings.yaml` 中的SD参数
-- 检查Counterfeit-V3.0模型是否正确加载
-- 尝试调整提示词生成策略（使用LLM vs 规则生成）
-
-## 开发说明
-
-各个模块都可以独立使用：
-
-```python
-from src.novel_processor import NovelProcessor
-from src.fragment_filter import FragmentFilter
-from src.prompt_generator import PromptGenerator
-from src.sd_client import SDClient
-
-# 使用各个模块...
-```
+感谢这些项目的贡献者们的辛勤工作和开源精神！
 
 ## 许可证
 
@@ -205,5 +185,4 @@ MIT License
 
 ## 贡献
 
-欢迎提交Issue和Pull Request！
-
+欢迎提交 Issue 和 Pull Request！

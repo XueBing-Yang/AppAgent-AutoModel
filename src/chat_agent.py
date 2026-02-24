@@ -26,7 +26,7 @@ from src.workflows.xhs_publish import (
 load_dotenv()
 
 
-_VISION_MODEL_KEYWORDS = ("qwen-vl", "qwen2.5-vl", "qwen3.5-plus", "gpt-4o", "gpt-4-vision", "gemini")
+_VISION_MODEL_KEYWORDS = ("qwen-vl", "qwen2.5-vl", "qwen3.5", "gpt-4o", "gpt-4-vision", "gemini")
 
 
 class ChatAgent:
@@ -34,7 +34,7 @@ class ChatAgent:
         self.config_path = config_path
         self.config = self._load_config(config_path)
         self.client = self._init_client()
-        self.model = self.config.get("llm", {}).get("model", "qwen3.5-plus")
+        self.model = self.config.get("llm", {}).get("model", "qwen3.5-397b-a17b")
         self.enable_thinking = "deepseek" in self.model.lower()
         self.is_vision = any(kw in self.model.lower() for kw in _VISION_MODEL_KEYWORDS)
         self.tools = get_skill_specs()
@@ -103,11 +103,13 @@ class ChatAgent:
                 "4) 每次操作后截图确认结果，确保操作生效后再进行下一步。\n\n"
                 "【游戏引擎界面策略】（当系统提示'游戏模式'时使用此策略）：\n"
                 "游戏使用 Unity/Cocos 等引擎渲染，dump_ui 和 find_elements 无法识别任何游戏内元素。\n"
-                "1) 截图上会叠加红色坐标网格线，每条线旁标注了真实像素坐标值；\n"
-                "2) 根据网格参照线判断目标元素的位置，直接用 android_tap_coordinates 点击；\n"
-                "3) 不要调用 android_find_elements / android_dump_ui / android_tap_text（一定返回空）；\n"
-                "4) 点击后立刻截图确认是否生效，如果界面没变化，在目标附近偏移 ±30~50px 重试；\n"
-                "5) 用百分比思考位置：例如'按钮在屏幕左侧约5%、垂直约80%处' -> x=screen_w*0.05, y=screen_h*0.80。\n"
+                "1) 截图上叠加了百分比网格线（10%, 20%, ..., 90%），还有更细的5%辅助线；\n"
+                "2) 看目标按钮/元素位于哪两条网格线之间，估计其百分比位置；\n"
+                "3) 用 android_tap_percent(x_pct=XX, y_pct=YY) 点击，其中 x_pct/y_pct 是 0-100 的百分比；\n"
+                "   例如：按钮在水平 50% 线上、垂直在 60%-70% 之间偏上 → android_tap_percent(x_pct=50, y_pct=63)；\n"
+                "4) 绝对不要调用 android_find_elements / android_dump_ui / android_tap_text（游戏界面一定返回空）；\n"
+                "5) 点击后立刻截图确认是否生效，如果界面没变化，在百分比上偏移 ±3~5 重试；\n"
+                "6) 不要使用 android_tap_coordinates 点击游戏界面——用 android_tap_percent 代替，它能自动处理横竖屏坐标转换。\n"
             )
         return base
 
@@ -131,8 +133,9 @@ class ChatAgent:
 
     @staticmethod
     def _draw_grid_overlay(image_path: str, screen_w: int, screen_h: int) -> Optional[str]:
-        """Draw coordinate grid on screenshot to help vision model estimate positions.
-        Returns path to the annotated image, or None on failure."""
+        """Draw a percentage-labeled grid on the screenshot.
+        Lines every 10% with percentage labels (matching android_tap_percent args).
+        Also draws lighter 5% lines for finer reference."""
         try:
             from PIL import Image, ImageDraw, ImageFont
         except ImportError:
@@ -145,18 +148,27 @@ class ChatAgent:
         draw = ImageDraw.Draw(overlay)
         img_w, img_h = img.size
         try:
-            font = ImageFont.truetype("arial.ttf", max(12, img_h // 60))
+            font = ImageFont.truetype("arial.ttf", max(14, img_h // 50))
+            font_small = ImageFont.truetype("arial.ttf", max(10, img_h // 70))
         except Exception:
             font = ImageFont.load_default()
-        for pct in range(10, 100, 10):
+            font_small = font
+        for pct in range(5, 100, 5):
+            is_major = (pct % 10 == 0)
             x = int(img_w * pct / 100)
-            real_x = int(screen_w * pct / 100)
-            draw.line([(x, 0), (x, img_h)], fill=(255, 50, 50, 90), width=1)
-            draw.text((x + 3, 3), str(real_x), fill=(255, 50, 50, 220), font=font)
             y = int(img_h * pct / 100)
-            real_y = int(screen_h * pct / 100)
-            draw.line([(0, y), (img_w, y)], fill=(255, 50, 50, 90), width=1)
-            draw.text((3, y + 3), str(real_y), fill=(255, 50, 50, 220), font=font)
+            if is_major:
+                draw.line([(x, 0), (x, img_h)], fill=(255, 50, 50, 100), width=1)
+                draw.text((x + 2, 2), f"{pct}%", fill=(255, 50, 50, 240), font=font)
+                draw.line([(0, y), (img_w, y)], fill=(255, 50, 50, 100), width=1)
+                draw.text((2, y + 2), f"{pct}%", fill=(255, 50, 50, 240), font=font)
+            else:
+                draw.line([(x, 0), (x, img_h)], fill=(255, 100, 100, 50), width=1)
+                draw.line([(0, y), (img_w, y)], fill=(255, 100, 100, 50), width=1)
+        orientation = "landscape" if screen_w > screen_h else "portrait"
+        corner_text = f"{screen_w}x{screen_h} ({orientation})"
+        draw.text((img_w - len(corner_text) * 8 - 5, img_h - 20), corner_text,
+                  fill=(255, 255, 0, 200), font=font_small)
         result = Image.alpha_composite(img, overlay).convert("RGB")
         out_path = str(p.parent / f"{p.stem}_grid{p.suffix}")
         result.save(out_path)
@@ -211,10 +223,11 @@ class ChatAgent:
             if game_mode and screen_w > 0:
                 orientation = "横屏" if screen_w > screen_h else "竖屏"
                 context_text = (
-                    f"当前手机屏幕截图（{orientation}，实际分辨率 {screen_w}×{screen_h}）。"
-                    f"图片上叠加了红色坐标网格线（每条线旁标注了真实像素坐标）。"
-                    f"请根据网格参考线精确定位目标元素的坐标，然后直接用 android_tap_coordinates 点击。"
-                    f"不要调用 android_find_elements（游戏引擎界面无法识别 UI 元素）。"
+                    f"当前手机屏幕截图（{orientation}，分辨率 {screen_w}×{screen_h}）。\n"
+                    f"图片上叠加了百分比网格线：粗线标注 10%,20%,...,90%，细线标注 5%,15%,...,95%。\n"
+                    f"请观察目标元素位于哪两条网格线之间，估计其百分比位置，"
+                    f"然后用 android_tap_percent(x_pct=XX, y_pct=YY) 点击。\n"
+                    f"不要用 android_tap_coordinates，不要调用 android_find_elements。"
                 )
             else:
                 context_text = (
@@ -450,6 +463,15 @@ class ChatAgent:
                     {"session_id": active_android_session_id, "output_path": "tmp/xhs_boot.png"},
                 )
                 img_path = (shot.get("screenshot") or "") if isinstance(shot, dict) else ""
+                if img_path:
+                    try:
+                        from PIL import Image as _PILImage
+                        _img = _PILImage.open(img_path)
+                        _iw, _ih = _img.size
+                        if _iw > 0 and _ih > 0:
+                            screen_w, screen_h = _iw, _ih
+                    except Exception:
+                        pass
                 messages.append({
                     "role": "system",
                     "content": (
@@ -677,18 +699,17 @@ class ChatAgent:
                             if isinstance(sz, dict) and sz.get("success"):
                                 screen_w = sz["width"]
                                 screen_h = sz["height"]
-                        messages.append({
-                            "role": "system",
-                            "content": (
-                                "⚠️ 游戏模式已激活：当前为游戏引擎渲染界面，dump_ui/find_elements 无法识别任何游戏内元素。\n"
-                                "请切换为【游戏引擎界面策略】：\n"
-                                "- 不要再调用 android_find_elements / android_dump_ui / android_tap_text\n"
-                                "- 截图上有红色坐标网格参考线，根据网格读取目标的像素坐标\n"
-                                "- 直接用 android_tap_coordinates 点击，点击后截图确认\n"
-                                "- 如果点击无效，在附近 ±30~50px 偏移重试\n"
-                                + (f"- 屏幕分辨率: {screen_w}×{screen_h}\n" if screen_w else "")
-                            ),
-                        })
+                        _game_mode_msg = (
+                            "⚠️ 游戏模式已激活：当前为游戏引擎渲染界面，dump_ui/find_elements 无法识别任何游戏内元素。\n"
+                            "请切换为【游戏引擎界面策略】：\n"
+                            "- 不要再调用 android_find_elements / android_dump_ui / android_tap_text\n"
+                            "- 截图上叠加了百分比网格线（10%,20%,...,90%），还有5%间隔的细线\n"
+                            "- 观察目标按钮位于哪两条网格线之间，估计百分比位置\n"
+                            "- 用 android_tap_percent(x_pct=XX, y_pct=YY) 点击（0-100百分比），它自动处理横竖屏\n"
+                            "- 不要用 android_tap_coordinates（可能因横竖屏坐标系不匹配导致点击偏移）\n"
+                            "- 点击后截图确认，无效则在百分比上 ±3~5 偏移重试\n"
+                        )
+                        messages.append({"role": "system", "content": _game_mode_msg})
                 if name == "android_find_elements" and isinstance(result, dict):
                     found = result.get("count", 0) or len(result.get("elements") or [])
                     if found == 0:
@@ -704,15 +725,14 @@ class ChatAgent:
                             if isinstance(sz, dict) and sz.get("success"):
                                 screen_w = sz["width"]
                                 screen_h = sz["height"]
-                        messages.append({
-                            "role": "system",
-                            "content": (
-                                "⚠️ 游戏模式已激活：find_elements 连续返回空，当前界面可能是游戏引擎渲染。\n"
-                                "请停止调用 android_find_elements / android_dump_ui / android_tap_text。\n"
-                                "改为截图后根据坐标网格直接 android_tap_coordinates 点击。\n"
-                                + (f"屏幕分辨率: {screen_w}×{screen_h}\n" if screen_w else "")
-                            ),
-                        })
+                        _game_mode_msg2 = (
+                            "⚠️ 游戏模式已激活：find_elements 连续返回空，当前界面为游戏引擎渲染。\n"
+                            "请停止调用 android_find_elements / android_dump_ui / android_tap_text。\n"
+                            "截图上有百分比网格线，观察目标位于哪两条线之间。\n"
+                            "用 android_tap_percent(x_pct=XX, y_pct=YY) 点击（0-100百分比），自动处理横竖屏坐标转换。\n"
+                            "不要用 android_tap_coordinates。点击后截图确认，无效则百分比 ±3~5 偏移重试。\n"
+                        )
+                        messages.append({"role": "system", "content": _game_mode_msg2})
                 # --- Fetch screen size on session start ---
                 if name == "android_start" and isinstance(result, dict) and result.get("success") and screen_w == 0:
                     sid = result.get("session_id") or active_android_session_id
@@ -727,6 +747,14 @@ class ChatAgent:
                     img_path = result.get("screenshot") or result.get("path") or ""
                     if img_path:
                         last_screenshot_path = img_path
+                        try:
+                            from PIL import Image as _PILImage
+                            _img = _PILImage.open(img_path)
+                            _iw, _ih = _img.size
+                            if _iw > 0 and _ih > 0:
+                                screen_w, screen_h = _iw, _ih
+                        except Exception:
+                            pass
                     if img_path and self.is_vision:
                         injected = self._inject_screenshot(
                             messages, img_path,
