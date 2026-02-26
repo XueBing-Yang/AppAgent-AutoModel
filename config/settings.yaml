@@ -40,6 +40,15 @@ output:
   save_metadata: true   # 是否保存元数据（片段文本、评分等）
   metadata_format: "json"  # 元数据格式：json, txt
 
+# 长期语义记忆配置
+memory:
+  enabled: true
+  path: "data/agent_memory.json"
+  max_memories: 500
+  retrieval_top_k: 5
+  embedding_model: "text-embedding-v3"
+  dimensions: 1024
+
 # Web 搜索配置（需要第三方搜索 API）
 search:
   # Tavily 搜索

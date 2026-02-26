@@ -14,6 +14,7 @@ import openai
 import yaml
 from dotenv import load_dotenv
 
+from src.memory_store import MemoryStore
 from src.skills import SkillContext, get_skill_specs, execute_skill
 from src.workflows.xhs_publish import (
     create_plan as create_xhs_plan,
@@ -39,6 +40,26 @@ class ChatAgent:
         self.is_vision = any(kw in self.model.lower() for kw in _VISION_MODEL_KEYWORDS)
         self.tools = get_skill_specs()
         self.skill_ctx = SkillContext(config_path=config_path)
+
+        mem_cfg = self.config.get("memory", {}) or {}
+        self.memory_enabled = bool(mem_cfg.get("enabled", False))
+        self.memory_store: Optional[MemoryStore] = None
+        if self.memory_enabled:
+            llm = self.config.get("llm", {})
+            provider = (llm.get("provider") or "").lower()
+            base_url = llm.get("base_url")
+            if provider == "dashscope":
+                base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            else:
+                base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            self.memory_store = MemoryStore(
+                path=mem_cfg.get("path", "data/agent_memory.json"),
+                max_memories=mem_cfg.get("max_memories", 500),
+                retrieval_top_k=mem_cfg.get("retrieval_top_k", 5),
+                embedding_model=mem_cfg.get("embedding_model", "text-embedding-v3"),
+                dimensions=mem_cfg.get("dimensions", 1024),
+                base_url=base_url,
+            )
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         config_file = Path(config_path)
@@ -311,6 +332,14 @@ class ChatAgent:
             o = result.get("orientation", "")
             emit("tool_insight", {"tool": name, "text": f"屏幕尺寸: {w}×{h} ({o})"})
 
+    def _add_memory_and_save(self, user_message: str, reply: str) -> None:
+        """将本轮对话写入长期记忆并持久化。"""
+        if not self.memory_enabled or not self.memory_store:
+            return
+        content = f"用户: {user_message}\nAgent: {reply}"
+        self.memory_store.add(content, metadata={"source": "conversation"})
+        self.memory_store.save()
+
     def chat(
         self,
         user_message: str,
@@ -321,6 +350,14 @@ class ChatAgent:
     ) -> Dict[str, Any]:
         """Run one user turn with explicit plan -> execute state transitions."""
         messages = [{"role": "system", "content": self._system_prompt()}]
+        if self.memory_enabled and self.memory_store:
+            recalled = self.memory_store.search(user_message)
+            if recalled:
+                mem_text = "\n".join(f"- {m.get('content', '')}" for m in recalled)
+                messages.append({
+                    "role": "system",
+                    "content": f"【相关历史记忆】\n{mem_text}",
+                })
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": user_message})
@@ -425,6 +462,7 @@ class ChatAgent:
             listed = _run_orchestrated_tool("android_list_devices", {})
             if not isinstance(listed, dict) or not listed.get("success"):
                 state_msg = "未检测到可用 Android 设备（ADB）。请连接手机并开启 USB 调试后重试。"
+                self._add_memory_and_save(user_message, state_msg)
                 return {
                     "reply": state_msg,
                     "messages": messages,
@@ -435,8 +473,10 @@ class ChatAgent:
                 }
             started = _run_orchestrated_tool("android_start", {})
             if not isinstance(started, dict) or not started.get("success"):
+                err_msg = "Android 会话启动失败，请确认 adb devices 可见且设备已授权。"
+                self._add_memory_and_save(user_message, err_msg)
                 return {
-                    "reply": "Android 会话启动失败，请确认 adb devices 可见且设备已授权。",
+                    "reply": err_msg,
                     "messages": messages,
                     "trace": trace,
                     "state": "waiting_user",
@@ -575,6 +615,7 @@ class ChatAgent:
                 if needs_user_input(reply):
                     state = "waiting_user"
                     emit("state_change", {"state": state})
+                    self._add_memory_and_save(user_message, reply)
                     return {
                         "reply": reply,
                         "messages": messages,
@@ -600,6 +641,7 @@ class ChatAgent:
                         continue
                 state = "completed"
                 emit("state_change", {"state": state})
+                self._add_memory_and_save(user_message, reply)
                 return {"reply": reply, "messages": messages, "trace": trace, "state": state, "plan": workflow_plan}
 
             content_text = (msg.content or "").strip()
@@ -845,14 +887,17 @@ class ChatAgent:
             if final_msg:
                 state = "completed"
                 emit("state_change", {"state": state})
+                self._add_memory_and_save(user_message, final_msg)
                 return {"reply": final_msg, "messages": messages, "trace": trace, "state": state, "plan": workflow_plan}
         except Exception:
             pass
 
         state = "failed"
         emit("state_change", {"state": state})
+        fail_msg = "执行已结束，但未能生成稳定最终回复。"
+        self._add_memory_and_save(user_message, fail_msg)
         return {
-            "reply": "执行已结束，但未能生成稳定最终回复。",
+            "reply": fail_msg,
             "messages": messages,
             "trace": trace,
             "state": state,
